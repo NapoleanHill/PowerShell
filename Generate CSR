@@ -1,0 +1,51 @@
+# Generate a Certificate Signing Request (CSR) using the SHA256 (SHA-256) signature algorithm and a 2048 bit key size (RSA) via the Cert Request Utility (certreq)
+# From https://4sysops.com/archives/create-a-certificate-request-with-powershell/
+
+$JavaServiceRegKey = "HKLM:\SOFTWARE\Wow6432Node\SEDC\JavaService"
+$CertName = (Get-ItemProperty -Path $JavaServiceRegKey).SEDCHostName
+#$Coop = (Get-ItemProperty -Path $JavaServiceRegKey).CoopName
+
+# Get certificate details from the SEDC root certificate (Coop name, city, state...)
+$UPNCertFile = "D:\SEDC\Downloads\SSL\upncert.pfx"
+$UPNCertPass = "BYQV02+CiNFyoffhL6bvz7BnHoHaOiHBC1zLijbkotmUXIBUldcVPyx0/F0DlRpA"
+$UPNCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2
+$UPNCert.Import($UPNCertFile, $UPNCertPass,[System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]"DefaultKeySet")
+
+$UPNCert | Select -expand SubjectName | Select -expand name | Where {$_ -match "[O][=][^[^,]*" } | Out-Null; $Coop  = $Matches[0] -replace "O=", ""
+$UPNCert | Select -expand SubjectName | Select -expand name | Where {$_ -match "[L][=][^[^,]*" } | Out-Null; $City  = $Matches[0] -replace "L=", ""
+$UPNCert | Select -expand SubjectName | Select -expand name | Where {$_ -match "[S][=][^[^,]*" } | Out-Null; $State = $Matches[0] -replace "S=", ""
+
+$Date = (Get-Date).ToString('yyyyMMdd')
+$CSRPath = "C:\ssl\$($CertName)-$Date.csr"
+$InfPath = "C:\ssl\$($CertName)-$Date.inf"
+$Signature = '$Windows NT$'
+
+$Inf =
+@"
+[Version]
+Signature= "$Signature"
+
+[NewRequest]
+Subject = "CN=$CertName, OU=IT, O=$Coop, L=$City, S=$State, C=US"
+KeySpec = 1
+KeyLength = 2048
+Exportable = TRUE
+MachineKeySet = TRUE
+SMIME = False
+PrivateKeyArchive = FALSE
+UserProtected = FALSE
+UseExistingKeySet = FALSE
+ProviderName = "Microsoft RSA SChannel Cryptographic Provider"
+ProviderType = 12
+RequestType = PKCS10
+KeyUsage = 0xa0
+HashAlgorithm = SHA256
+
+[EnhancedKeyUsageExtension]
+OID=1.3.6.1.5.5.7.3.1
+"@
+
+$Inf | Out-File -filepath $InfPath -force
+certreq -new $InfPath $CSRPath
+
+Write-Output "Certificate Request has been generated"
